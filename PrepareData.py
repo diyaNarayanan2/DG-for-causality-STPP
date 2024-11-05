@@ -13,13 +13,13 @@ def MakeEnvironments():
     the sorting will be stored in the form of index sets, with the index values from the original data ordering'''
    
 
-def PreProcessCovariates(report, mobility, demography, criterion, days, delta): 
+def PreProcessCovariates(report, mobility, demography, criterion, days, delta, verbose): 
     '''takes dfs as inputs(can be used for extracted environents)
     along with lambda function as criterion in input and returns four dfs
     1. full exogneous variables, i.e. all covariates
     2. corresponding endogenous variables, i.e. case count 
-    3. df of dates corresponding to dep variable data 
-    4. Keylist df of FIPS, State, County with te same ordering as data '''
+    3. df of dates corresponding to case count data 
+    4. Keylist df of FIPS, State, County with the same ordering as data '''
     
     if delta == "":
         print("No shift parameter for mobility provided. It will set to zero ... ")
@@ -43,7 +43,7 @@ def PreProcessCovariates(report, mobility, demography, criterion, days, delta):
             for date_str in date_keylist]   #output list of dates in datetime format
         
     n_mobitype = mobility_data.shape[0] // n_county
-    print(f"There are {n_county} counties and {n_day} days in the covid report, with {n_mobitype} mobility indices.")
+    
     for _ in range(mobiShift_in):
         mobility_data = np.hstack([np.mean(mobility_data[:, :7], axis=1, keepdims= True), mobility_data])
     mobility_data = mobility_data[:, :n_day]
@@ -56,7 +56,11 @@ def PreProcessCovariates(report, mobility, demography, criterion, days, delta):
     covar_mean = np.mean(covariates, axis=0)
     covar_std = np.std(covariates, axis=0)
     
-    covariates = (covariates - covar_mean) / covar_std      #normalising covariate values , alternatively can use min-max or standard scaler
+    covariates = (covariates - covar_mean) / covar_std  #normalising covariate values , alternatively can use min-max or standard scaler
     
+    if verbose:
+        print(f"There are {n_county} counties and {n_day} days in the covid report, with {n_mobitype} mobility indices.")
+        print(f"Training set: covariates has shape {covariates.shape} spanning {covariates.min()} to {covariates.max()}")
+        
     return covariates, case_count, date_list, county_keylist 
 
