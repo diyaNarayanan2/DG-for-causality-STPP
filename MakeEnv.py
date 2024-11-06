@@ -6,13 +6,6 @@ import numpy as np
 """Make env function for hawkes process code 
 envs will be made based on population density. as that is probability the greatest indicator of noise in the overall SCM
 density --> 0 - 17k, need to make 5 bins of densities
-
-main part to adjust is model fitting portion- 
-glmtr-> covar_tr
-glm_y-> q-> covid_tr
-keep n_cty and n_day_tr equal for all env.n_day_tr is shape[1]
-n_cty is shape[0], but env seperation will keep length of all env equal which is n_cty, choose a total length which is n_cty*5
-can benchmark agaisnt 5th environment.
 """
 
 class PopulationDensityEnvs:
@@ -29,7 +22,8 @@ class PopulationDensityEnvs:
         self.covid_groups = self.extract_groups_from_dataset(self.covid_path, self.group_indices) 
         self.mobility_groups = self.extract_groups_from_mobility_extended()  
         
-        print(f"{self.n_env} environments have been created, each with length {self.env_len}.")
+        print("envrionemnts have been created based on popluation density (equal sizes)")
+        print(f"{self.n_env} environments, each with length {self.env_len}.")
 
         for e in range(self.n_env): 
             min_density = self.demography_groups[e].iloc[:, 3].min()  # pop. density is in fourth column
@@ -82,3 +76,103 @@ class PopulationDensityEnvs:
         cropped_data = [group.iloc[: self.env_len * 6] for group in extended_grouped_data]
         
         return cropped_data
+
+
+class StateGroupedEnvs:
+    def __init__(self, demographic_path, mobility_path, covid_path):
+        self.demographic_path = demographic_path
+        self.mobility_path = mobility_path
+        self.covid_path = covid_path
+        self.state_groups = []
+
+        self.group_indices, self.state_groups = self.make_state_groups()  
+        self.state_groups = list(self.state_groups.keys())
+        self.demography_groups = self.extract_groups_from_dataset(self.demographic_path, self.group_indices)  
+        self.covid_groups = self.extract_groups_from_dataset(self.covid_path, self.group_indices)  
+        self.mobility_groups = self.extract_groups_from_mobility_extended()
+        
+        print("Envrionments have been created state wise (different sizes)")
+        print(f"Total number of states: {len(self.group_indices)}")
+        for i, group in enumerate(self.group_indices):
+            print(f"State {i+1}: {self.state_groups[i]} : {len(group)} counties")
+
+    def make_state_groups(self):
+        '''Create groups based on state. all counties in one state in one environment'''
+        demog_data = pd.read_csv(self.demographic_path)
+
+        # group indices by unique states (second column: state)
+        state_groups = demog_data.groupby(demog_data.columns[1]).indices  #dictionary of indices by state
+
+        # convert dictionary into list of arrays (which have the indices)
+        group_indices = [state_groups[state] for state in state_groups]
+        
+        return group_indices, state_groups
+
+    def extract_groups_from_dataset(self, data_path, group_indices):
+        data = pd.read_csv(data_path)
+        grouped_data = [data.iloc[group] for group in group_indices]
+        
+        return grouped_data
+
+    def extract_groups_from_mobility_extended(self):
+        data = pd.read_csv(self.mobility_path)
+        extended_grouped_data = []
+        
+        for group in self.group_indices:
+            extended_rows = []
+            for index in group:
+                extended_rows.append(data.iloc[index * 6 : (index + 1) * 6])
+            extended_grouped_data.append(pd.concat(extended_rows))
+        
+        return extended_grouped_data
+    
+class RegionGroupedEnvs:
+    def __init__(self, demographic_path, mobility_path, covid_path, regions_path):
+        self.demographic_path = demographic_path
+        self.mobility_path = mobility_path
+        self.covid_path = covid_path
+        self.regions_path = regions_path
+        self.region_groups = []
+
+        self.group_indices, self.region_groups = self.make_region_groups()  
+        
+        self.demography_groups = self.extract_groups_from_dataset(self.demographic_path, self.group_indices)
+        self.covid_groups = self.extract_groups_from_dataset(self.covid_path, self.group_indices)
+        self.mobility_groups = self.extract_groups_from_mobility_extended()
+
+        print("Environments have been created region-wise (different sizes)")
+        print(f"Total number of regions: {len(self.group_indices)}")
+        for i, group in enumerate(self.group_indices):
+            print(f"Region {i+1}: {self.region_groups[i]} : {len(group)} counties")
+
+    def make_region_groups(self):
+        '''Create groups based on regions. All counties in the same region in one environment.'''
+        demog_data = pd.read_csv(self.demographic_path)
+        region_data = pd.read_csv(self.regions_path)
+
+        # Merge demographic data with region data on the state column (second column)
+        demog_with_regions = demog_data.merge(region_data, left_on=demog_data.columns[1], right_on=region_data.columns[0])
+
+        region_groups = demog_with_regions.groupby(region_data.columns[1]).indices  # Dictionary of indices by region
+
+        group_indices = [region_groups[region] for region in region_groups]
+        
+        return group_indices, list(region_groups.keys())
+
+    def extract_groups_from_dataset(self, data_path, group_indices):
+        data = pd.read_csv(data_path)
+        grouped_data = [data.iloc[group] for group in group_indices]
+        
+        return grouped_data
+    
+    def extract_groups_from_mobility_extended(self):
+        data = pd.read_csv(self.mobility_path)
+        extended_grouped_data = []
+        
+        for group in self.group_indices:
+            extended_rows = []
+            for index in group:
+                extended_rows.append(data.iloc[index * 6 : (index + 1) * 6])
+            extended_grouped_data.append(pd.concat(extended_rows))
+        
+        return extended_grouped_data
