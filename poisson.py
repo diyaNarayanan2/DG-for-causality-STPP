@@ -1,19 +1,29 @@
-class PoissonRegessrorGLM(object):
+import statsmodels.api as sm
+
+class PoissonRegressorGLM:
     def __init__(self, exog, endo, freq):
-        model = sm.GLM(endo, 
+        self.model = sm.GLM(
+            endo, 
             exog, 
             family=sm.families.Poisson(), 
             freq_weights=freq,
-            missing="drop",
+            missing="drop"
         )
-        
-        print(model)
 
-        # Fit the model
-        result = model.fit(maxiter=300)
-        print(result.summary())
-        self.coef = result.params
+        self.result = self.model.fit(maxiter=300)
+        self.coef_ = self.result.params
+        self.predictions = self.result.predict(exog)
         
-        pred = model.predict(exog)
+        print("Model fitting complete.")
+
+    def get_coefficients(self): 
+        '''return coefficients of the trained model'''
+        return self.coef_
+
+    def print_summary(self):
+        print(self.result.summary())
         
-        return pred
+    def predict(self, new_exog):
+        '''predict for new data'''
+        return self.result.predict(new_exog)
+

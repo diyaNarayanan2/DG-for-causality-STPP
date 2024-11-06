@@ -6,14 +6,8 @@ import warnings
 import torch
 from datetime import datetime 
 START_DAYS = 50
-
-def MakeEnvironments():
-    '''function to transform input data into environments
-    will use one of the feature values to sort the data into groups or environments
-    the sorting will be stored in the form of index sets, with the index values from the original data ordering'''
    
-
-def PreProcessCovariates(report, mobility, demography, criterion, days, delta, verbose): 
+def PreProcessCovariates(report, mobility, demography, days, delta, verbose): 
     '''takes dfs as inputs(can be used for extracted environents)
     along with lambda function as criterion in input and returns four dfs
     1. full exogneous variables, i.e. all covariates
