@@ -32,14 +32,15 @@ parser.add_argument("--delta", type=int, default=4)
 parser.add_argument("--n_env", type=int, default=5)
 parser.add_argument("--n_days", type=int, default=10)
 parser.add_argument("--emitr", type=int, default=10)
+parser.add_argument("--lr", type=float, default=1e-2)
+parser.add_argument("--n_iterations", type=int, default=1000)
+parser.add_argument("--break_diff", type=float, default=1e-3)
 parser.add_argument("--verbose", type=int, default=1)
 parser.add_argument("--n_cty", type=int, default=30)
-parser.add_argument("--method", type=str, default="ERM")
+parser.add_argument("--method", type=str, default="IRM")
 parser.add_argument("--kernel_type", type=str, default="gaussian")
 args = parser.parse_args()
 
-# Global Constants
-BREAK_DIFF = 1e-3
 
 PopD_Envs = PopulationDensityEnvs(args.demography_path, args.mobility_path, args.report_path, args.n_env, args.n_cty)
 report_all = PopD_Envs.covid_groups
@@ -77,13 +78,14 @@ date_list = dates
 # tracking updates across iterations
 mus_prev = [None] * args.n_env
 R0_prev = [None] * args.n_env
-alphas_prev, betas_prev = [None] * args.n_env, [None] * args.n_env
+alphas_prev, betas_prev = [2] * args.n_env, [2] * args.n_env
 alpha_delta = [[] for _ in range(args.n_env)]
 beta_delta = [[] for _ in range(args.n_env)]
 mus_delta = [[] for _ in range(args.n_env)]
 R0_delta = [[] for _ in range(args.n_env)]
 
 for itr in range(args.emitr):
+    start_time = time.time()
     if args.verbose:
         print(f"Starting EM Iteration: {itr+1}")
     
@@ -97,6 +99,9 @@ for itr in range(args.emitr):
     all_covariates = [env["covariates"] for env in env_data]
     all_endog = [env["Q"].reshape(-1, 1) for env in env_data]
     all_event_freqs = [env["covid"].reshape(-1, 1) for env in env_data]
+    
+    if args.verbose: 
+        print("Starting poisson model learning using Domain Generalization")
 
     if args.method == "ERM": 
         model = EmpiricalRiskMinimizer(all_covariates, all_endog, all_event_freqs, args)

@@ -40,6 +40,10 @@ class InvariantRiskMinimization(object):
         """
         self.best_reg = 0
         self.best_err = float("inf")
+        
+        exog = torch.tensor(np.array(exog), dtype=torch.float32)
+        endog = torch.tensor(np.array(endog), dtype=torch.float32) 
+        freqs = torch.tensor(np.array(freqs), dtype=torch.float32)
 
         x_val = exog[-1]
         y_val = endog[-1]
@@ -47,7 +51,7 @@ class InvariantRiskMinimization(object):
             self.train(exog[:-1], endog[:-1], freqs[:-1], args, reg=reg)
             err = torch.mean((torch.exp(x_val @ self.solution()) - y_val) ** 2).item()
 
-            if args["verbose"]:
+            if args.verbose:
                 print(f"IRM (reg={reg:.3f}) has validation error: {err:.3f}.")
 
             if err < self.best_err:
@@ -86,10 +90,10 @@ class InvariantRiskMinimization(object):
         self.w = nn.Parameter(torch.empty(dim_x, 1))
         nn.init.xavier_uniform_(self.w)
 
-        optimizer = torch.optim.Adam([self.phi, self.w], lr=args["lr"], weight_decay=1e-5)
-        poisson_loss = nn.PoissonNLLLoss(log_input=True)
+        optimizer = torch.optim.Adam([self.phi, self.w], lr=args.lr, weight_decay=1e-5)
+        poisson_loss = nn.PoissonNLLLoss(log_input=True, reduction='mean')
 
-        for iteration in range(args["n_iterations"]):
+        for iteration in range(args.n_iterations):
             penalty = 0
             error = 0
 
@@ -101,11 +105,12 @@ class InvariantRiskMinimization(object):
                 error += error_e
 
             loss = (reg * error + (1 - reg) * penalty) * f
+            loss = loss.mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            if args["verbose"] and iteration % 100 == 0:
+            if args.verbose and iteration % 100 == 0:
                 w_str = pretty(self.solution())
                 print(
                     "{:05d} | {:.5f} | {:.5f} | {:.5f} | {}".format(
@@ -119,13 +124,28 @@ class InvariantRiskMinimization(object):
         return (self.phi @ self.w).view(-1, 1)
     
     def predict(self, X): 
-        return X @ self.solution()
+        
+        if isinstance(X, np.ndarray):
+            X = torch.tensor(X, dtype=torch.float32)
+
+        # Compute the logits using the learned parameters
+        logits = X @ self.solution()
+        rates = torch.exp(logits)
+
+        # Return the predicted Poisson rates (lambda)
+        return rates.detach().numpy()
+            
 
 
 class MaximumMeanDiscrepancy(object):
     def __init__(self, endog, exog, freqs, args):
         best_reg = 0
         best_err = 1e6
+        
+        exog = torch.tensor(np.array(exog), dtype=torch.float32)
+        endog = torch.tensor(np.array(endog), dtype=torch.float32) 
+        freqs = torch.tensor(np.array(freqs), dtype=torch.float32)
+
 
         x_val = exog[-1]
         y_val = endog[-1]
@@ -144,8 +164,8 @@ class MaximumMeanDiscrepancy(object):
         # Save the best model parameters
         #self.phi = best_phi
 
-    def train(self, environments, args, reg=0):
-        dim_x = environments[0][0].size(1)
+    def train(self, endog, exog, freqs, args, reg=0):
+        dim_x = exog[0].size(1)
 
         # Initialize phi and weights
         self.phi = nn.Parameter(torch.empty(dim_x, dim_x))
@@ -156,23 +176,23 @@ class MaximumMeanDiscrepancy(object):
         self.w.requires_grad = True
 
         # Optimizer and loss function for Poisson regression
-        opt = torch.optim.Adam([self.phi, self.w], lr=args["lr"], weight_decay=1e-5)
-        loss = torch.nn.PoissonNLLLoss(log_input=True)
+        opt = torch.optim.Adam([self.phi, self.w], lr=args.lr, weight_decay=1e-5)
+        loss = torch.nn.PoissonNLLLoss(log_input=True, reduction='mean')
 
-        for iteration in range(args["n_iterations"]):
+        for iteration in range(args.n_iterations):
             penalty = 0
             error = 0
 
             # Compute error and MMD penalty for each pair of environments
-            for i, (x_e1, y_e1) in enumerate(environments):
-                error += loss((x_e1 @ self.phi @ self.w), y_e1)
+            for i, (x_e1, y_e1, f) in enumerate(zip(exog, endog, freqs)):
+                error += loss((x_e1 @ self.phi @ self.w), y_e1) * f
 
-                for j, (x_e2, y_e2) in enumerate(environments):
+                for j, (x_e2, y_e2, f) in enumerate(zip(exog, endog, freqs)):
                     if i < j:
-                        penalty += self.mmd(x_e1, x_e2, args["kernel_type"])
+                        penalty += self.mmd(x_e1, x_e2, args["kernel_type"]) * f
 
             # Normalize penalty
-            num_envs = len(environments)
+            num_envs = exog.shape[0]
             error /= num_envs
             if num_envs > 1:
                 penalty /= (num_envs * (num_envs - 1) / 2)
@@ -182,7 +202,7 @@ class MaximumMeanDiscrepancy(object):
             (error + reg * penalty).backward()
             opt.step()
 
-            if args["verbose"] and iteration % 100 == 0:
+            if args.verbose and iteration % 100 == 0:
                 w_str = pretty(self.solution())
                 print(
                     "{:05d} | {:.5f} | {:.3f} | {:.3f} | {}".format(
@@ -275,7 +295,7 @@ class InvariantCausalPrediction(object):
 
             if p_value > self.alpha:
                 accepted_subsets.append(set(subset))
-                if args["verbose"]:
+                if args.verbose:
                     print("Accepted subset:", subset)
 
         if len(accepted_subsets):
@@ -317,12 +337,9 @@ class EmpiricalRiskMinimizer(object):
         x_all = np.concatenate([e for e in exog])
         y_all = np.concatenate([e for e in endog])
         freq_all = np.concatenate([e for e in freqs])
-        print(x_all.shape)
-        print(y_all.shape)
-        print(freq_all.shape)
 
         # w = LinearRegression(fit_intercept=False).fit(x_all, y_all).coef_
-        self.model = PoissonRegressor(max_iter=1000, verbose=0)
+        self.model = PoissonRegressor(max_iter=args.n_iterations, verbose=0)
         self.model.fit(x_all, y_all.ravel(), sample_weight=freq_all.ravel())
         w = self.model.coef_
         self.w = torch.Tensor(w).view(-1, 1)

@@ -24,7 +24,7 @@ def wblval(n_day, n_cty, alpha, beta):
 
 def wblfit(obs, freqs):
     # Expand data according to frequencies
-    expanded_data = np.repeat(obs, freqs)
+    expanded_data = np.repeat(obs, np.round(freqs).astype(int))
     shape, loc, scale = weibull_min.fit(expanded_data, floc=0) 
 
     return scale, shape
@@ -54,17 +54,16 @@ def EStep(covid_tr, mus, R0, alpha, beta):
 def MStep(R0, lam, mus, p, covid_tr):
     '''Maxmimsation step: after poisson fitting'''
     n_cty, n_day = covid_tr.shape
-    print(f"Shape of R0: {R0.shape}")
     R0 = signal.savgol_filter(R0, window_length=10, polyorder=2, axis=1)
     
     lam_eq_zero = lam == 0
-    mus = np.divide(mus, lam, where=~lam_eq_zero, out=np.zeros_like(mus))
-    mus = np.sum(mus * covid_tr, axis=1) / n_day
+    mus = np.divide(mus, lam, where=~lam_eq_zero, out=np.zeros_like(lam))
+    mus = (np.sum(mus * covid_tr, axis=1) / n_day).reshape(-1,1)
     
     # FIT WEIBULL PARAMS
-    time_diffs = np.arange(1, n_day)[:, None] - np.arange(1, n_day)
+    time_diffs = np.arange(1, n_day+1)[:, None] - np.arange(1, n_day+1)
     obs = np.tril(time_diffs)
-    inter_event_freqs = covid_tr_ext_j(covid_tr, n_day) * covid_tr_ext_i(covid_tr, n_day, n_cty) * p
+    inter_event_freqs = covid_tr_ext_j(covid_tr, n_day) * covid_tr_ext_i(covid_tr, n_day, n_cty).T * p
     inter_event_freqs = inter_event_freqs.reshape(n_day, n_cty, n_day).transpose(0, 2, 1).sum(axis=2)
     ind_ret = np.where((obs >0) & (inter_event_freqs >0))
     obs = obs[ind_ret]
