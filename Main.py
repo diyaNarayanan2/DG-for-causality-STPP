@@ -1,3 +1,18 @@
+"""
+This file parses arguments for learning a Hawkes process
+    Initializes a dictionary to store all variables env wise 
+    Preprocess covariates and store them env wise 
+    Initialize empty variables to track EM algo performance
+    Start EM algo 
+        E step env wise 
+        prepares endog exog and freqs for Poisson regression fitting 
+    Fit on envs simultaneously 
+        M step env wise 
+        stores final variable values in dict 
+    computes delta values 
+Then it implements an EM algorithm  """
+
+
 import numpy as np 
 import torch
 import warnings
@@ -5,7 +20,8 @@ import pandas as pd
 from PrepareData import PreProcessCovariates
 from MakeEnv import PopulationDensityEnvs, StateGroupedEnvs, RegionGroupedEnvs
 from EMAlgo import EStep, MStep
-from poisson import PoissonRegressorGLM
+from poisson import *
+import time
 import argparse
 
 parser = argparse.ArgumentParser(description="Run EM algorithm with Poisson regression")
@@ -17,81 +33,123 @@ parser.add_argument("--n_env", type=int, default=5)
 parser.add_argument("--n_days", type=int, default=10)
 parser.add_argument("--emitr", type=int, default=10)
 parser.add_argument("--verbose", type=int, default=1)
+parser.add_argument("--n_cty", type=int, default=30)
+parser.add_argument("--method", type=str, default="ERM")
+parser.add_argument("--kernel_type", type=str, default="gaussian")
 args = parser.parse_args()
 
 # Global Constants
 BREAK_DIFF = 1e-3
 
-PopD_Envs = PopulationDensityEnvs(args.demography_path, args.mobility_path, args.report_path, args.n_env, args.n_days)
+PopD_Envs = PopulationDensityEnvs(args.demography_path, args.mobility_path, args.report_path, args.n_env, args.n_cty)
 report_all = PopD_Envs.covid_groups
 demography_all = PopD_Envs.demography_groups
 mobility_all = PopD_Envs.mobility_groups
 
-# Initialize data holders for environments
-covariates_all, key_lists_all, covid_all = [], [], []
-R0_all, prob_matrix_all, mus_all, lam_all, Q_all = [], [], [], [], []
-alphas, betas = [2] * args.n_env, [2] * args.n_env
+# environment-wise dictionaries
+env_data = [
+    {
+        "covariates": None,
+        "covid": None,
+        "key_list": None,
+        "R0": np.ones((args.n_cty, args.n_days)),
+        "mus": 0.5 * np.ones((args.n_cty, 1)),
+        "lam": np.zeros((args.n_cty, args.n_days)),
+        "prob_matrix": None,
+        "Q": None
+    } for _ in range(args.n_env)
+]
 
-# initial values
-R0 = np.ones((args.n_env, args.n_days))
-prob_matrix = [[None for _ in range(args.n_env * args.n_days)] for _ in range(args.n_days)]
-bg_rate = 0.5 * np.ones((args.n_env, 1))
-cond_intensity = np.zeros((args.n_env, args.n_days))
+alphas = [2] * args.n_env
+betas = [2] * args.n_env
 
 # Preprocessing
 for e in range(args.n_env): 
     cov, cases, dates, key = PreProcessCovariates(
         report_all[e], mobility_all[e], demography_all[e], args.n_days, args.delta, args.verbose
     )
-    covariates_all.append(cov)
-    covid_all.append(cases)
-    key_lists_all.append(key)
-    R0_all.append(R0)
-    prob_matrix_all.append(prob_matrix)
-    mus_all.append(bg_rate)
-    lam_all.append(cond_intensity)
+    env_data[e]["covariates"] = cov
+    env_data[e]["covid"] = cases
+    env_data[e]["key_list"] = key
 
 date_list = dates
 
-# Empty arrays for tracking updates across iterations
-alpha_delta, alpha_prev, beta_delta, beta_prev = [], [], [], []
-mus_delta, mus_prev, K0_delta, K0_prev = [], [], [], []
-theta_delta, theta_prev = [], []
+# tracking updates across iterations
+mus_prev = [None] * args.n_env
+R0_prev = [None] * args.n_env
+alphas_prev, betas_prev = [None] * args.n_env, [None] * args.n_env
+alpha_delta = [[] for _ in range(args.n_env)]
+beta_delta = [[] for _ in range(args.n_env)]
+mus_delta = [[] for _ in range(args.n_env)]
+R0_delta = [[] for _ in range(args.n_env)]
 
-# EM Algorithm Training Loop
 for itr in range(args.emitr):
     if args.verbose:
         print(f"Starting EM Iteration: {itr+1}")
     
     for e in range(args.n_env): 
         # E-step
-        lam_all[e], mus_all[e], prob_matrix_all[e], Q_all[e] = EStep(
-            prob_matrix_all[e], covid_all[e], mus_all[e], R0_all[e], alphas[e], betas[e]
-        ) 
+        env_data[e]["lam"], env_data[e]["mus"], env_data[e]["prob_matrix"], env_data[e]["Q"] = EStep(
+            env_data[e]["covid"], env_data[e]["mus"], env_data[e]["R0"], alphas[e], betas[e]
+        )
+    
+    # Train the model
+    all_covariates = [env["covariates"] for env in env_data]
+    all_endog = [env["Q"].reshape(-1, 1) for env in env_data]
+    all_event_freqs = [env["covid"].reshape(-1, 1) for env in env_data]
 
-        # Prepare data for Poisson regression
-        exog = covariates_all[e]
-        endo = Q_all[e].reshape(-1, 1)
-        event_freqs = covid_all[e].reshape(-1, 1)
-        
-        if args.verbose:
-            print(f"Training Poisson model on environment {e+1}:")
-
-        # Train Poisson regression model
-        model = PoissonRegressorGLM(exog, endo, event_freqs)
-        
-        # Output model summary and coefficients if verbose
-        if args.verbose:
-            model.print_summary()
-        
-        coefficients = model.get_coefficients()
-        if args.verbose:
-            print("Coefficients:", coefficients)
-        
+    if args.method == "ERM": 
+        model = EmpiricalRiskMinimizer(all_covariates, all_endog, all_event_freqs, args)
+    elif args.method == "IRM": 
+        model = InvariantRiskMinimization(all_covariates, all_endog, all_event_freqs, args)
+    elif args.method == "MMD": 
+        model = MaximumMeanDiscrepancy(all_covariates, all_endog, all_event_freqs, args)
+    
+    for e in range(args.n_env):
         # Update R0 with predictions for M-step
-        R0_all[e] = model.predict(covariates_all[e])
+        env_data[e]["R0"] = model.predict(env_data[e]["covariates"])
+        env_data[e]["R0"] = np.reshape(env_data[e]["R0"], (args.n_cty, args.n_days))
         
         # M-step
-        lam_all[e], mus_all[e], alphas[e], betas[e] = MStep(
-            R0_all[e], lam_all[e], mus_all[e], prob_matrix_all[e], covid_all[e]
+        env_data[e]["lam"], env_data[e]["mus"], alphas[e], betas[e] = MStep(
+            env_data[e]["R0"], env_data[e]["lam"], env_data[e]["mus"], env_data[e]["prob_matrix"], env_data[e]["covid"]
         )
+        
+        if itr == 0:
+            # Save the first iteration values
+            mus_prev[e] = env_data[e]["mus"]
+            R0_prev[e] = env_data[e]["R0"]
+        else:
+            # Calculate RMSR for convergence check
+            mus_delta[e].append(np.sqrt(np.mean((mus_prev[e] - env_data[e]["mus"]) ** 2)))
+            R0_delta[e].append(np.sqrt(np.mean((R0_prev[e] - env_data[e]["R0"]) ** 2)))
+            alpha_delta[e].append(np.sqrt((alphas[e] - alphas_prev[e]) ** 2))
+            beta_delta[e].append(np.sqrt((betas[e] - betas_prev[e]) ** 2))
+
+            # Save current values for next iteration
+            mus_prev[e] = env_data[e]["mus"]
+            R0_prev[e] = env_data[e]["R0"]
+
+    # Early stopping criteria
+    if itr > 5:
+        converged = True
+        for e in range(args.n_env):
+            if not (np.all(np.array(mus_delta[e][-5:]) < args.break_diff) and
+                    np.all(np.array(R0_delta[e][-5:]) < args.break_diff) and
+                    np.all(np.array(alpha_delta[e][-5:]) < args.break_diff) and
+                    np.all(np.array(beta_delta[e][-5:]) < args.break_diff)):
+                converged = False
+                break  # One environment not converged
+        
+        if converged:
+            print(f"Convergence criterion met at iteration {itr + 1}. Exiting EM loop.")
+            break
+
+    if args.verbose:
+        elapsed_time = time.time() - start_time
+        print(f"Iteration {itr+1} completed in {elapsed_time:.2f} seconds.")
+
+
+print("EM Algorithm Completed.")
+        
+    
