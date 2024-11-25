@@ -37,6 +37,7 @@ def EStep(covid_tr, mus, R0, alpha, beta):
     eye_mu = np.tile(np.eye(n_day), (n_cty, 1)) * np.repeat(mus, n_day, axis=0)
 
     lam = np.sum(prob_matrix * covid_tr_ext_j(covid_tr, n_day) + eye_mu, axis=1)
+    #expectation of conditional intensity
     lam = lam.reshape(lam.shape[0], 1)
     lam_eq_zero = lam == 0
 
@@ -44,6 +45,7 @@ def EStep(covid_tr, mus, R0, alpha, beta):
     prob_matrix = np.divide(prob_matrix, lam)
     prob_matrix[lam_eq_zero.flatten()] = 0
     lam = lam.reshape(n_day, n_cty).T
+    
     
     p = np.reshape(prob_matrix, (n_day, n_day * n_cty))
     Q = np.reshape(p * covid_tr_ext_i(covid_tr, n_day, n_cty), (n_day, n_day * n_cty))
