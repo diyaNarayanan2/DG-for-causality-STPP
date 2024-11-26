@@ -59,7 +59,7 @@ class PopulationDensityEnvs:
         return grouped_data
 
     def extract_groups_from_mobility_extended(self):
-        '''adjusted for mibility since, each index in group indices corresponds to 6x rows in mobility'''
+        '''adjusted for mobility since, each index in group indices corresponds to 6x rows in mobility'''
         data = pd.read_csv(self.mobility_path)
         extended_grouped_data = []
         
