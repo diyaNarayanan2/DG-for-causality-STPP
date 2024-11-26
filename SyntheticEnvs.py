@@ -1,15 +1,6 @@
 import numpy as np
 from scipy.stats import weibull_min
 
-n_cty = 20
-T = n_day = 10
-
-n_demo_cov = 8
-n_mob_cov = 6
-#Full true data declaration
-true_alpha = 1.5
-true_beta = 2
-
 class SyntheticEnvs: 
     def __init__(self, n_cty, n_day, n_demo_cov, n_mob_cov, alpha, beta, env_list): 
         self.n_cty = n_cty
@@ -22,61 +13,86 @@ class SyntheticEnvs:
         true_demo_data = np.random.uniform(0,3,size=(self.n_cty, self.n_demo_cov))
         true_mob_data = np.random.uniform(0,3,size=(self.n_cty, self.n_mob_cov, self.n_day))
         self.true_weights = np.random.rand(self.n_demo_cov + self.n_mob_cov)
-        true_mu = 0.5 * np.ones(self.n_cty)
+        self.mu = 0.65 * np.ones(self.n_cty)
         
         demography = np.repeat(np.expand_dims(true_demo_data, axis=2), self.n_day, axis=2) # shape: (n_cty , n_demo_cov, n_day)
-        covariates = np.concatenate((demography, true_mob_data), axis=1) #shape: n_cty, n_cov, n_day
-        xw = np.einsum('ijk,j->ik', covariates, self.true_weights) #shape: n_cty, n_day
+        self.covariates = np.concatenate((demography, true_mob_data), axis=1) #shape: n_cty, n_cov, n_day
+        xw = np.einsum('ijk,j->ik', self.covariates, self.true_weights) #shape: n_cty, n_day
         R = np.random.poisson(xw)
         #calls hawkes sim to generate covid data for different adjusted X values for diff envs 
-        events, lam_t = self.hawkes_discrete_simulation(true_mu, R, xw)
+        events, lam_t = self.hawkes_discrete_simulation(self.mu, R, xw)
         self.covid_groups = events 
         self.cond_intensity = lam_t
+        
+        #self.covid_groups = make_covid_groups()
+        #self.mobility_groups = make mobility_groups()
+        #self.demography_groups = make_demo_groups()
         
     def hawkes_discrete_simulation(self, mu, R, xw):
         """
         Simulates a Hawkes process with discrete time steps using the thinning method.
+        generates exponentially decaying continuous time steps, then calculates probability 
+        of acceptance using discretized binned timestep
         
+        Lambda = mu + Sum{R(X0)w(t-t-j) : t_j<t}        
         Parameters:
-            T (int): Total simulation time (number of time steps).
-            mu (float): Baseline intensity.
-            R (numpy array): Reproductive rate over time (shape: T).
-            XW (numpy array): Covariates affecting R (not directly used here but can extend the model).
-            alpha (float): Weibull scale parameter.
-            beta (float): Weibull shape parameter.
-        
+            mu (numpy array): Background rate
+            R (numpy array): Reproductive rate (shape: n_cty, T).
+            xw (numpy array): Covariates 
+            
         Returns:
-            events (numpy array): Array of event counts at each time step (shape: T).
-            lambda_t (numpy array): Array of conditional intensity values at each time step (shape: T).
+            events (numpy array): event counts for each county (shape: n_cty, T).
+            lambda_t (numpy array): conditional intensity values (shape: n_cty, T).
         """
-        events = np.zeros((self.n_cty, self.n_day), dtype=int)  # vent counts at each time step
-        lambda_t = np.zeros((self.n_cty, self.n_day))           # lambda(t) 
+        T = self.n_day  # time steps
+        n_cty = len(xw)  # counties
         
-        # Estimate lambda_max using weibull max
+        # Estimate lambda_max using Weibull maximum
         t_peak = self.alpha * ((self.beta - 1) / self.beta) ** (1 / self.beta) if self.beta > 1 else 0
         w_peak = weibull_min.pdf(t_peak, self.beta, scale=self.alpha)
-        R_max = np.max(R)  # Maximum R(XW)
-        lambda_max = np.max(self.mu) + np.sum(R_max * w_peak)  
-        #weibull kernel for history calc
-        weibull_kernel = weibull_min.pdf(np.arange(1, T + 1), self.beta, scale=self.alpha)
+        R_max = np.max(R) 
+        lambda_max = np.max(mu) + np.sum(R_max * w_peak)
         
-        for i in range(len(xw)): 
-            # for each county
+        # outputs
+        events = np.zeros((n_cty, T), dtype=int)
+        lambda_t = np.zeros((n_cty, T))
+        
+        for i in range(n_cty):  
+            t = 0  # Reset current time for each county
             
-            for t in range(self.n_day):
-                if t == 0:
-                    lambda_t[i][t] = mu[i] 
-                else:
-                    history_influence = 0
-                    for t_j in range(t):
-                        history_influence += R[i][t_j] * weibull_kernel[t - t_j - 1] * events[i][t_j]
-                    lambda_t[i][t] = mu[i] + history_influence
+            while t < T:
+                delta_t = np.random.exponential(1 / lambda_max)
+                t_candidate = t + delta_t
                 
-                # thinning method
-                if np.random.uniform(0, 1) <= (lambda_t[i][t] / lambda_max):
-                    events[t] += 1
+                if t_candidate >= T:
+                    break
+                
+                t_discrete = int(np.floor(t_candidate))
+                
+                # triggering kernel influence 
+                past_events = np.where(events[i, :t_discrete] > 0)[0]
+                hist_influence = np.sum([
+                    R[i, t_discrete] * weibull_min.pdf(t_discrete - t_j, self.beta, scale=self.alpha)
+                    for t_j in past_events
+                ])
+                lambda_t_candidate = mu[i] + hist_influence
+                
+                if np.random.uniform(0, 1) <= (lambda_t_candidate / lambda_max):
+                    events[i, t_discrete] += 1
+                
+                t = t_candidate
+            
+            # Compute lambda_t for all time steps
+            for t in range(T):
+                past_events = np.where(events[i, :t] > 0)[0]
+                hist_influence = np.sum([
+                    R[i, t] * weibull_min.pdf(t - t_j, self.beta, scale=self.alpha)
+                    for t_j in past_events
+                ])
+                lambda_t[i, t] = mu[i] + hist_influence
         
-        return events, lambda_t 
+        return events, lambda_t    
+
     
     def solution(self): 
         sol = self.true_weights
