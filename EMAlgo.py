@@ -2,6 +2,7 @@ import numpy as np
 from scipy.stats import weibull_min, exponweib 
 import matplotlib.pyplot as plt 
 from scipy import signal
+import seaborn as sns
 
 def covid_tr_ext_j(covid_tr, n_day):
     # extends covid_tr vertically
@@ -17,7 +18,7 @@ def wblval(n_day, n_cty, alpha, loc, beta):
     eps = 1e-06
     # creates the weibull probability distribution function 
     time_diffs = np.arange(1, n_day+1)[:, None] - np.arange(1, n_day+1)
-    wblpdf = weibull_min.pdf(time_diffs, c=beta, scale=alpha, loc=loc+eps)
+    wblpdf = weibull_min.pdf(time_diffs, c=beta, scale=alpha)
     wblpdf = np.tril(wblpdf)
     wbl_cty_wise = np.tile(wblpdf, (n_cty, 1))
     
@@ -26,7 +27,7 @@ def wblval(n_day, n_cty, alpha, loc, beta):
 def wblfit(obs, freqs):
     # Expand data according to frequencies
     expanded_data = np.repeat(obs, np.round(freqs).astype(int))
-    beta, loc, alpha = weibull_min.fit(expanded_data) 
+    beta, loc, alpha = weibull_min.fit(expanded_data, floc=0) 
 
     return alpha, loc, beta
 
@@ -46,12 +47,28 @@ def ExpStep(covid_tr, mus, R0, alpha, loc, beta):
     trig_comp = R0_ext_j * wblval(n_day, n_cty, alpha, loc, beta) * (covid_tr_ext_j(covid_tr, n_day) > 0)
     # lam = mu + [sum for t_j < t]R(0)w(t-t_j)    
     mu_comp = np.tile(np.eye(n_day), (n_cty, 1)) * np.repeat(mus, n_day, axis=0)
+    
+    # Create figure with two subplots side by side
+    plt.figure(figsize=(12, 5))
+    # Plot mu component
+    plt.subplot(1, 2, 1)    
     sns.heatmap(mu_comp)
-    sns.heatmap(R0_ext_j * wblval(n_day, n_cty, alpha, loc, beta))
+    plt.title('Background Rate Component')
+    
+    # Plot triggering component
+    plt.subplot(1, 2, 2)
+    sns.heatmap(trig_comp*covid_tr_ext_j(covid_tr, n_day))
+    plt.title('Triggering Component')
+    
+    plt.suptitle(f'Components of Lambda')
+    plt.tight_layout()
+    plt.show()
+    
     # mu on t_j = t_i ;else 0
-    lambda_t = np.sum(mu_comp + trig_comp, axis=1, keepdims=True) 
+    lambda_t = np.sum(mu_comp + trig_comp * covid_tr_ext_j(covid_tr, n_day), axis=1, keepdims=True) 
     p_c_ij = np.divide(trig_comp, lambda_t, where= lambda_t != 0) 
     p_c_ii = np.divide(mu_comp, lambda_t, where= lambda_t != 0)
+    print(f"max p_c_ii: {np.max(p_c_ii)}, min p_c_ii: {np.min(p_c_ii)}")
 
     #lambda gets broadcasted
     full_p = mu_comp + p_c_ij
@@ -86,6 +103,7 @@ def MaxStep(R0, p_c_ii, p_c_ij, covid_tr):
     mus = mus.reshape(n_cty, n_day)
     # mu_c = [sum over t_i]p_c(i,i)/lambda(t_i)
     mus = np.sum(mus, axis=1, keepdims=True) / n_day
+    mus = np.clip((mus), 0, 0.5)
     
     # FIT WEIBULL PARAMS
     time_diffs = np.arange(1, n_day+1)[:, None] - np.arange(1, n_day+1)
@@ -97,6 +115,23 @@ def MaxStep(R0, p_c_ii, p_c_ij, covid_tr):
     freqs = inter_event_freqs[ind_ret]
 
     alpha, loc, beta = wblfit(obs, freqs)
+    alpha = np.clip(alpha, 0.1, 10)
+    beta = np.clip(beta, 0.5, 5)
+    
+    # Plot the Weibull PDF
+    plt.figure(figsize=(8, 6))
+    time_range = np.linspace(0, np.max(obs), 100)
+    pdf_values = weibull_min.pdf(time_range, c=beta, loc=loc, scale=alpha)
+    
+    plt.plot(time_range, pdf_values, 'r-', label=f'Fitted Weibull (α={alpha:.2f}, β={beta:.2f}, loc={loc:.2f})')
+    plt.hist(obs, weights=freqs/np.sum(freqs), density=True, bins=30, alpha=0.5, label='Data Distribution')
+    
+    plt.title('Fitted Weibull Distribution')
+    plt.xlabel('Time Difference (days)')
+    plt.ylabel('Probability Density')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
     
     return mus, alpha, loc, beta
     
