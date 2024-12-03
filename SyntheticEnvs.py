@@ -1,42 +1,40 @@
 import numpy as np
+import random
+import os
 from scipy.stats import weibull_min
 
 class SyntheticEnvs: 
-    def __init__(self, n_cty, n_day, n_demo_cov, n_mob_cov, alpha, beta, env_list, dim): 
+    def __init__(self, n_cty, n_day, alpha, beta, mu, env_list, dim, h): 
+        """
+        Initializes variables for synthetic data generation
+        assume n_cty is number of samples
+        Days ,alpha, beta, mu, environment values, covariate dimension
+        h is the seed for the random number generator
+        covariates, weights generated here
+        Only one layer of dimensionality, mu and cov constant across days 
+        """
+        # Set seeds for all possible sources of randomness
+        self.h = h
+        np.random.seed(self.h)
+        random.seed(self.h)
+        os.environ['PYTHONHASHSEED'] = str(self.h)
+        
         self.n_cty = n_cty
         self.n_day = n_day
-        self.n_demo_cov = n_demo_cov
-        self.n_mob_cov = n_mob_cov
         self.alpha = alpha 
         self.beta = beta 
+        self.mu = mu
         
-        '''
-        true_demo_data = np.random.uniform(0,3,size=(self.n_cty, self.n_demo_cov))
-        true_mob_data = np.random.uniform(0,3,size=(self.n_cty, self.n_mob_cov, self.n_day))
-        self.true_weights = np.random.rand(self.n_demo_cov + self.n_mob_cov)
-        demography = np.repeat(np.expand_dims(true_demo_data, axis=2), self.n_day, axis=2) # shape: (n_cty , n_demo_cov, n_day)
-        self.covariates = np.concatenate((demography, true_mob_data), axis=1) #shape: n_cty, n_cov, n_day
-        xw = np.einsum('ijk,j->ik', self.covariates, self.weights_xy) #shape: n_cty, n_day
-        R = np.random.poisson(xw)
-        #calls hawkes sim to generate covid data for different adjusted X values for diff envs 
-        events, lam_t = self.hawkes_discrete_simulation(self.mu, R, xw)
-        self.covid_groups = events 
-        self.cond_intensity = lam_t
-        #self.covid_groups = make_covid_groups()
-        #self.mobility_groups = make mobility_groups()
-        #self.demography_groups = make_demo_groups()
-        '''
+        # generate events w mob demo data for 1 env
+        self.dim_x = dim // 2
+        self.causal_cov = np.random.rand(self.n_cty, self.dim_x)
+        self.wxy = np.random.rand(self.dim_x, self.dim_x)  # scaled to [0, 0.25] range
         
-        #generating true causal covariates (invariant across envs)
-        dim_x = dim // 2
-        self.causal_cov = np.random.rand(self.n_cty, dim_x)
-        self.wxy = np.random.rand(dim_x, dim_x)
-        self.mu = 0.65 * np.ones(self.n_cty)
-        covariate_groups, case_count_groups = self.makeEnvs(env_list, dim_x)
+        # generate acausal data and events for all envs
+        covariate_groups, case_count_groups = self.makeEnvs(env_list)   
         
         self.case_count_envs = case_count_groups
         self.covariate_envs = covariate_groups
-        
         
     def hawkes_discrete_simulation(self, mu, R):
         """
@@ -47,7 +45,7 @@ class SyntheticEnvs:
         Lambda = mu + Sum{R(X0)w(t-t-j) : t_j<t}        
         Parameters:
             mu (numpy array): Background rate
-            R (numpy array): Reproductive rate (shape: n_cty, T).
+            R (numpy array): Reproductive rate (shape: n_cty, 1).
             xw (numpy array): Covariates 
             
         Returns:
@@ -66,6 +64,7 @@ class SyntheticEnvs:
         events = np.zeros((self.n_cty, T), dtype=int)
         lambda_t = np.zeros((self.n_cty, T))
         
+        # samples events n_cty times for n_cty event rates 
         for i in range(self.n_cty):  
             t = 0  # Reset current time for each county
             
@@ -81,7 +80,7 @@ class SyntheticEnvs:
                 # triggering kernel influence 
                 past_events = np.where(events[i, :t_discrete] > 0)[0]
                 hist_influence = np.sum([
-                    R[i, t_discrete] * weibull_min.pdf(t_discrete - t_j, self.beta, scale=self.alpha)
+                    R[i] * weibull_min.pdf(t_discrete - t_j, self.beta, scale=self.alpha)
                     for t_j in past_events
                 ])
                 lambda_t_candidate = mu[i] + hist_influence
@@ -95,21 +94,20 @@ class SyntheticEnvs:
             for t in range(T):
                 past_events = np.where(events[i, :t] > 0)[0]
                 hist_influence = np.sum([
-                    R[i, t] * weibull_min.pdf(t - t_j, self.beta, scale=self.alpha)
+                    R[i] * weibull_min.pdf(t - t_j, self.beta, scale=self.alpha)
                     for t_j in past_events
                 ])
                 lambda_t[i, t] = mu[i] + hist_influence
         
-        return events, lambda_t    
+        return events, lambda_t     
 
-    
-    def solution(self): 
-        # add weights along axes to make 1 d
-        # weights_xy is a dim, dim matrix
-        sol = self.weights_xy     
+    def trueSolution(self): 
+        w_reduced = np.sum(self.wxy, axis=1)
+        sol = np.concatenate([w_reduced, np.zeros(self.dim_x)])
+        # shape of sol is (2dim_x, 1); dim_x is number of causal covariates
+        return sol     
             
-    
-    def makeEnvs(self, env_list, dim): 
+    def makeEnvs(self, env_list): 
         """
         Makes a set of environments using an input env_list
         one set of acausal cov geenrated with env dependent noise for each env
@@ -120,32 +118,25 @@ class SyntheticEnvs:
         and case count will be generated from R, mu(same for all envs)
         init shuld return sets of case count and X for each env (observed variables for EM)        
         """
-        x = self.causal_cov
-        y = x @ self.wxy # optional can add env varying noise 
-        # wxy is the true set of weights 
-        # y caused by x with no noise       
-        wyz = np.random.rand(dim, dim)
+        x = self.causal_cov # shape (n_cty, dim_x)
+        y = x @ self.wxy  
+        wyz = np.random.rand(self.dim_x, self.dim_x)
         all_covariates = []
         
         for _, e in enumerate(env_list): 
-            # z is acausal covariates 
-            # total covariates to train w is 2 dim 
-            z_e =  y @ wyz + np.random.rand(self.n_cty, dim) * e
-            cov = np.concatenate([x, z_e], axis=1)
+            z_e = y @ wyz + np.random.rand(self.n_cty, self.dim_x) * e  # Removed n_cty dimension
+            cov = np.concatenate([x, z_e], axis=1)  # Concatenate vectors
             all_covariates.append(cov)
             
         w = np.sum(self.wxy, axis=1, keepdims=True)
-        R = np.tile(np.random.poisson(x @ w, size=(self.n_cty, 1)), self.n_day)
-        # shape of x @ w: (n,1)
-        # one reproductive rate for each county 
-        # does not vary day wise but repeated for function input  
+        R = np.exp(x @ w).flatten() # shape (n_cty, 1)
+        
         all_case_counts = []
-        for e in range (len(env_list)): 
+        for e in range(len(env_list)): 
             case_count_e, _ = self.hawkes_discrete_simulation(self.mu, R)
             all_case_counts.append(case_count_e)
             
         return all_covariates, all_case_counts
-        
         
             
 
