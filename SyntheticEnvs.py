@@ -31,10 +31,11 @@ class SyntheticEnvs:
         self.wxy = np.random.rand(self.dim_x, self.dim_x)  # scaled to [0, 0.25] range
         
         # generate acausal data and events for all envs
-        covariate_groups, case_count_groups = self.makeEnvs(env_list)   
+        covariate_groups, case_count_groups, lambda_groups = self.makeEnvs(env_list)   
         
         self.case_count_envs = case_count_groups
         self.covariate_envs = covariate_groups
+        self.lambda_envs = lambda_groups
         
     def hawkes_discrete_simulation(self, mu, R):
         """
@@ -66,11 +67,25 @@ class SyntheticEnvs:
         
         # samples events n_cty times for n_cty event rates 
         for i in range(self.n_cty):  
-            t = 0  # Reset current time for each county
+            t = 0
+            # Add safety counter to prevent infinite loops
+            iteration_count = 0
+            max_iterations = 1000000  # Adjust this number as needed
             
             while t < T:
+                # Add safety check
+                iteration_count += 1
+                if iteration_count > max_iterations:
+                    print(f"Warning: Maximum iterations reached for county {i}")
+                    break
+                
                 delta_t = np.random.exponential(1 / lambda_max)
                 t_candidate = t + delta_t
+                
+                # Add minimum time step to ensure progress
+                if delta_t < 1e-10:  # Prevent extremely small time steps
+                    delta_t = 1e-10
+                    t_candidate = t + delta_t
                 
                 if t_candidate >= T:
                     break
@@ -98,6 +113,7 @@ class SyntheticEnvs:
                     for t_j in past_events
                 ])
                 lambda_t[i, t] = mu[i] + hist_influence
+        print(f"Sampling complete for county {i}")
         
         return events, lambda_t     
 
@@ -122,7 +138,7 @@ class SyntheticEnvs:
         y = x @ self.wxy  
         wyz = np.random.rand(self.dim_x, self.dim_x)
         all_covariates = []
-        
+        all_lambdas = []
         for _, e in enumerate(env_list): 
             z_e = y @ wyz + np.random.rand(self.n_cty, self.dim_x) * e  # Removed n_cty dimension
             cov = np.concatenate([x, z_e], axis=1)  # Concatenate vectors
@@ -133,10 +149,11 @@ class SyntheticEnvs:
         
         all_case_counts = []
         for e in range(len(env_list)): 
-            case_count_e, _ = self.hawkes_discrete_simulation(self.mu, R)
+            case_count_e, lambda_e = self.hawkes_discrete_simulation(self.mu, R)
             all_case_counts.append(case_count_e)
-            
-        return all_covariates, all_case_counts
+            all_lambdas.append(lambda_e)
+
+        return all_covariates, all_case_counts, all_lambdas
         
             
 
