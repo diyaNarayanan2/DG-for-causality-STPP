@@ -95,7 +95,7 @@ class SyntheticEnvs:
                 # triggering kernel influence 
                 past_events = np.where(events[i, :t_discrete] > 0)[0]
                 hist_influence = np.sum([
-                    R[i] * weibull_min.pdf(t_discrete - t_j, self.beta, scale=self.alpha)
+                    R[i] * weibull_min.pdf(t_discrete - t_j, self.alpha, loc=0, scale=self.beta)
                     for t_j in past_events
                 ])
                 lambda_t_candidate = mu[i] + hist_influence
@@ -113,7 +113,7 @@ class SyntheticEnvs:
                     for t_j in past_events
                 ])
                 lambda_t[i, t] = mu[i] + hist_influence
-        print(f"Sampling complete for county {i}")
+            print(f"Sampling complete for county {i}")
         
         return events, lambda_t     
 
@@ -149,6 +149,7 @@ class SyntheticEnvs:
         
         all_case_counts = []
         for e in range(len(env_list)): 
+            print(f"Starting simulation for env {e}")
             case_count_e, lambda_e = self.hawkes_discrete_simulation(self.mu, R)
             all_case_counts.append(case_count_e)
             all_lambdas.append(lambda_e)

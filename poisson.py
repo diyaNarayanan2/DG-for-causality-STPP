@@ -87,7 +87,8 @@ class InvariantRiskMinimization(object):
         y_val = endog[-1]
         for reg in [0, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1]:
             self.train(exog[:-1], endog[:-1], freqs[:-1], args, reg=reg)
-            err = torch.mean((torch.exp(x_val @ self.solution()) - y_val) ** 2).item()
+            err = torch.nn.PoissonNLLLoss(log_input=False, reduction='mean')(torch.exp(x_val @ self.solution()), y_val)
+            #err = torch.mean((torch.exp(x_val @ self.solution()) - y_val) ** 2).item()
 
             if args.verbose:
                 print(f"IRM (reg={reg:.3f}) has validation error: {err:.3f}.")

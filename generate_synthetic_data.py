@@ -41,7 +41,10 @@ def generate_and_save_data(args):
             'true_alpha': args.true_alpha,
             'true_beta': args.true_beta,
             'true_mu': mu,
-            'seed': args.seed
+            'seed': args.seed,
+            'env_list': args.env_list,
+            'n_cty': args.n_cty,
+            'n_day': args.n_day
         }
     }
     
@@ -90,14 +93,30 @@ def generate_and_save_data(args):
     plt.savefig(os.path.join(data_dir, 'cumulative_cases.png'))
     plt.close()
     
+    # Plot 3: Daily new cases
+    fig3, ax = plt.subplots(figsize=(10, 6))
+    
+    for i, cases in enumerate(data['case_count_all']):
+        daily_cases = cases.sum(axis=0)  # Sum across all locations for each day
+        ax.plot(daily_cases, color=colors[i], 
+                label=f'Environment {i+1}', linewidth=2)
+    
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Daily New Cases')
+    ax.set_title('Daily New Cases Across Environments')
+    ax.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig(os.path.join(data_dir, 'daily_cases.png'))
+    plt.close()
+    
     print("Synthetic data, parameters, and visualizations saved successfully")
 if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--n_day", type=int, default=100)
+    parser.add_argument("--n_day", type=int, default=20)
     parser.add_argument("--true_alpha", type=float, default=1)
-    parser.add_argument("--true_beta", type=float, default=10)
+    parser.add_argument("--true_beta", type=float, default=1.81)
     parser.add_argument("--env_list", type=list, default=[1.2, 1.8, 3, 0.2, 5])
     parser.add_argument("--covariate_dim", type=int, default=10)
     parser.add_argument("--true_mu", type=float, default=0.8)
