@@ -69,10 +69,16 @@ def generate_and_save_data(args):
         axes[i].set_xlabel('Time')
         axes[i].set_ylabel('Location')
     
+    # Add parameter values as text at the bottom of the figure
+    param_text = f'μ = {args.true_mu:.2f}, α = {args.true_alpha:.2f}, β = {args.true_beta:.2f}'
+    fig1.text(0.5, 0.02, param_text, ha='center', fontsize=10)
+    
+    # Adjust layout to make room for the parameter text
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    
     for j in range(i + 1, len(axes)):
         axes[j].remove()
     
-    plt.tight_layout()
     plt.savefig(os.path.join(data_dir, 'lambda_heatmaps.png'))
     plt.close()
     
