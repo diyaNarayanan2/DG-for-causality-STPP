@@ -1,3 +1,5 @@
+'''This file contains functions to implement Expectation Maximization algorithm, step wise and divided by mathematical functions'''
+
 import numpy as np 
 from scipy.stats import weibull_min, exponweib 
 import matplotlib.pyplot as plt 
@@ -138,7 +140,7 @@ def MaxStep(R0, p_c_ii, p_c_ij, covid_tr, verbose):
     return mus, alpha, loc, beta
     
 def EStep(covid_tr, mus, R0, alpha, beta):
-    '''Expectation Step in EM algorithm '''
+    '''Expectation Step in EM algorithm implementation in Matlab code '''
     n_cty, n_day = covid_tr.shape
     R0_ext_j = np.repeat(R0, n_day, axis=0)
     prob_matrix = R0_ext_j * wblval(n_day, n_cty, alpha, beta) * (covid_tr_ext_j(covid_tr, n_day) > 0)
@@ -163,14 +165,13 @@ def EStep(covid_tr, mus, R0, alpha, beta):
     return lam, mus, prob_matrix, Q
 
 def MStep(R0, lam, mus, p, covid_tr):
-    '''Maxmimsation step: after poisson fitting'''
+    '''Maxmimsation step: after poisson fitting implementation in Matlab code'''
     n_cty, n_day = covid_tr.shape
     R0 = signal.savgol_filter(R0, window_length=10, polyorder=2, axis=1)
     
     lam_eq_zero = lam == 0
     mus = np.divide(mus, lam, where=~lam_eq_zero, out=np.zeros_like(lam))
     #mus = (np.sum(mus * covid_tr, axis=1) / n_day).reshape(-1,1)
-    # TODO check against matlab impleemntation
     mus = (np.sum(mus, axis=1) / n_day).reshape(-1,1)
     
     # FIT WEIBULL PARAMS

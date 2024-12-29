@@ -1,3 +1,7 @@
+'''
+This fike contains a code that runs the Synthetic Env class, stores the true parameters of the synthetic data generated.
+It also stores visualizations to describe the synehtic data (Conditional Intensity, daily events, cummulative events- across different environments)'''
+
 import numpy as np
 from SyntheticEnvs import SyntheticEnvs
 import os
@@ -6,8 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 
-#first run this file to generate synthetic data, then that data will get saved, then run test2.py
-
+#first run this file, then Main.py
 # each time this file is run, the old data gets overwritten
 
 def generate_and_save_data(args):

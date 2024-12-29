@@ -1,3 +1,6 @@
+'''This file contains Domain Generalization algorithms- Invariant Risk Minimization and Maximum Mean Discrepancy for testing agaisnt Empirical Risk Minimization
+The file also contains an implementation of an alternate loss function of Deviance on likelihood '''
+
 import statsmodels.api as sm
 import numpy as np
 import torch

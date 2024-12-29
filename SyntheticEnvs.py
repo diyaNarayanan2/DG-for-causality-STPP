@@ -1,3 +1,6 @@
+'''This file contains a class to generate synehtic data for testing in the experiment
+The class generates both causal and acausal covariates, along with an event sequence according to the Ogata thinning algorithm, adjusted for discretized time steps using binning'''
+
 import numpy as np
 import random
 import os
@@ -28,7 +31,15 @@ class SyntheticEnvs:
         # generate events w mob demo data for 1 env
         self.dim_x = dim // 2
         self.causal_cov = np.random.rand(self.n_cty, self.dim_x)
-        self.wxy = np.random.rand(self.dim_x, self.dim_x)  # scaled to [0, 0.25] range
+        if self.dim_x == 4: 
+            self.wxy = np.array([
+                [1, -2, 3, 0],
+                [-0.34, 2, 0, 0.5],
+                [0, -2, -1, 0],
+                [0, 1, -2.5, -2]
+            ])
+        else: 
+            self.wxy = np.random.rand(self.dim_x, self.dim_x) * 0.15 # scaled to [0, 0.25] range
         
         # generate acausal data and events for all envs
         covariate_groups, case_count_groups, lambda_groups = self.makeEnvs(env_list)   
@@ -140,7 +151,7 @@ class SyntheticEnvs:
         all_covariates = []
         all_lambdas = []
         for _, e in enumerate(env_list): 
-            z_e = y @ wyz + np.random.rand(self.n_cty, self.dim_x) * e  # Removed n_cty dimension
+            z_e = y @ wyz + np.random.rand(self.n_cty, self.dim_x) * e  
             cov = np.concatenate([x, z_e], axis=1)  # Concatenate vectors
             all_covariates.append(cov)
             
@@ -149,6 +160,7 @@ class SyntheticEnvs:
         
         all_case_counts = []
         for e in range(len(env_list)): 
+            # generates event sequence for each environment
             print(f"Starting simulation for env {e}")
             case_count_e, lambda_e = self.hawkes_discrete_simulation(self.mu, R)
             all_case_counts.append(case_count_e)

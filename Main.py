@@ -1,7 +1,9 @@
 import numpy as np 
 from SyntheticEnvs import SyntheticEnvs
+# EM Algorithm structure and functions file
 from EMAlgo import *
-from poisson import *
+# Domain Generalisation algorithms file
+from DGeneralAlgo import *
 import time
 import argparse
 import seaborn as sns
