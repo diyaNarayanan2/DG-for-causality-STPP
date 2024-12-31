@@ -12,10 +12,6 @@ Copyright: 2024, Diya Narayanan, [Data Science & it's Applications Lab](https://
 
 We aim to implement Causal Invariant Learning to the inference process of learning a Hawkes process using Maximum Likelihood estimation. This is done by integrating Domain Generalization algorithms into the learning process during the Expectation Maximization algorithm. The Domain Generalization algorithm incentivizes the model to learn invariant predictors across different environments
 
-# Methodology
-
-
-
 # Usage
 ### Option 1: Using Python
 
